@@ -1,8 +1,10 @@
 import os
 import asyncio
 import streamlit as st
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, OpenAI
 from dotenv import load_dotenv
+from multiprocessing import Pool
+from functools import partial
 
 # Load environment variables
 # Note: You can use https://gitingest.com/ to securely copy and manage your tokens
@@ -165,6 +167,7 @@ def main():
     with st.sidebar:
         st.title("Context Settings")
         st.info("💡 Use [gitingest.com](https://gitingest.com/) for secure token management.")
+        st.warning("Note: Context processing happens only once when you first ask a question. Subsequent questions will use the same processed context until you update it.")
         new_context = st.text_area("Enter your context text here:", height=300)
         if st.button("Set Context"):
             st.session_state.context_text = new_context
@@ -172,6 +175,7 @@ def main():
             st.success("Context updated successfully!")
     
     st.title("fastAsk")
+    st.info("The first question you ask will process the context. Subsequent questions will use the same processed context for faster responses.")
     
     # 1) Display the conversation so far
     for message in st.session_state.conversation_history:
@@ -205,19 +209,21 @@ def main():
         # Process chunks if we haven't done so yet
         if st.session_state.processed_chunks is None:
             chunk_size = 16000
+            overlap = 1000  # Number of characters to overlap between chunks
+            
+            # Modified chunking logic with overlap
             chunks = [
-                st.session_state.context_text[i : i + chunk_size] 
-                for i in range(0, len(st.session_state.context_text), chunk_size)
+                st.session_state.context_text[i:i + chunk_size] 
+                for i in range(0, len(st.session_state.context_text), chunk_size - overlap)
             ]
             
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                async def run_async():
-                    with st.spinner('Processing context...'):
-                        return await process_all_chunks_async(chunks, user_input)
-                
-                responses = loop.run_until_complete(run_async())
+            # Create chunk-question pairs
+            chunk_question_pairs = [(chunk, user_input) for chunk in chunks]
+            
+            with st.spinner('Processing context...'):
+                # Use multiprocessing to process chunks in parallel
+                with Pool() as pool:
+                    responses = pool.map(process_chunk_sync, chunk_question_pairs)
                 
                 # Filter out errors and "no relevant answer"
                 relevant_contexts = [
@@ -226,8 +232,6 @@ def main():
                 ]
                 
                 st.session_state.processed_chunks = "\n".join(relevant_contexts).strip()
-            finally:
-                loop.close()
 
         # Now generate a final answer
         combined_context = st.session_state.processed_chunks
@@ -252,6 +256,49 @@ def main():
 
         # Once the script re-runs from the top, you’ll see the conversation updated
         # with the user's message and the final response from the assistant.
+
+# Replace the async processing in main() with:
+def process_chunk_sync(chunk_and_question):
+    """
+    Synchronous version of chunk processing for multiprocessing
+    """
+    chunk, question = chunk_and_question
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=OPENROUTER_API_KEY,
+    )
+    
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are analyzing a chunk of text to copy the "
+                "relevant context to the question provided by the user. "
+                "If no relevant context is found, just output "
+                "'no relevant answer' and no other explanation."
+            )
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Based on this text:\n\n{chunk}\n\n"
+                f"Gather the relevant context to answer the following question: {question}"
+            )
+        }
+    ]
+    
+    try:
+        completion = client.chat.completions.create(
+            extra_headers={
+                "HTTP-Referer": "http://localhost",
+                "X-Title": "Local Script",
+            },
+            model=CONTEXT_GATHERER,
+            messages=messages
+        )
+        return completion.choices[0].message.content.strip()
+    except Exception as e:
+        return f"Error processing chunk: {str(e)}"
 
 if __name__ == "__main__":
     main()

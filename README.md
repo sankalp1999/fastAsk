@@ -1,6 +1,7 @@
 # AskMe
 
-A Streamlit-based Q&A application that allows users to ask questions about provided context using parallel use of LLMs.
+A simple application that uses parallel LLM calls to gather context from a large
+amount of text and then use it to chat. I am currently using deepseek.
 
 ## Setup
 

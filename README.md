@@ -1,14 +1,14 @@
 # FastAsk
 
-A simple application that usces parallel LLM calls to gather context from a large
+A simple application that uses parallel LLM calls to gather context from a large
 amount of text and then use it to chat. I am currently using deepseek. Use gitingest.com to copy tokens from public sources. I use this for documentation.
 
 ## Setup
 
 1. Create and activate virtual environment:
 ```bash
-python -m venv env
-source env/bin/activate  # On macOS/Linux
+python -m venv venv
+source venv/bin/activate  # On macOS/Linux
 ```
 
 2. Install dependencies:

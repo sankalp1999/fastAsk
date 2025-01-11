@@ -1,7 +1,7 @@
-# AskMe
+# FastAsk
 
 A simple application that usces parallel LLM calls to gather context from a large
-amount of text and then use it to chat. I am currently using deepseek.
+amount of text and then use it to chat. I am currently using deepseek. Use gitingest.com to copy tokens from public sources. I use this for documentation.
 
 ## Setup
 

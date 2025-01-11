@@ -1,6 +1,6 @@
 # AskMe
 
-A simple application that uses parallel LLM calls to gather context from a large
+A simple application that usces parallel LLM calls to gather context from a large
 amount of text and then use it to chat. I am currently using deepseek.
 
 ## Setup
@@ -26,8 +26,3 @@ OPENROUTER_API_KEY=your_api_key_here
 streamlit run app.py
 ```
 
-## Usage
-
-1. Paste your context text in the sidebar
-2. Ask questions in the chat interface
-3. Get AI-powered responses based on your context

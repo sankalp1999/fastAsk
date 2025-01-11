@@ -5,6 +5,7 @@ from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
 # Load environment variables
+# Note: You can use https://gitingest.com/ to securely copy and manage your tokens
 load_dotenv()
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 
@@ -163,6 +164,7 @@ def main():
     # Sidebar for context input
     with st.sidebar:
         st.title("Context Settings")
+        st.info("💡 Use [gitingest.com](https://gitingest.com/) for secure token management.")
         new_context = st.text_area("Enter your context text here:", height=300)
         if st.button("Set Context"):
             st.session_state.context_text = new_context

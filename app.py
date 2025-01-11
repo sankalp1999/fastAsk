@@ -8,6 +8,10 @@ from dotenv import load_dotenv
 load_dotenv()
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 
+# Model constants
+CONTEXT_GATHERER = "deepseek/deepseek-chat" # higher throughput model is preferred here
+CHAT_MODEL = "deepseek/deepseek-chat" # better model is preferred here
+
 ###############################################################################
 # Async function that processes one chunk
 ###############################################################################
@@ -53,7 +57,7 @@ async def process_chunk_async(chunk, question):
                 "HTTP-Referer": "http://localhost",
                 "X-Title": "Local Script",
             },
-            model="deepseek/deepseek-chat",
+            model=CONTEXT_GATHERER,
             messages=messages
         )
         return completion.choices[0].message.content.strip()
@@ -104,7 +108,7 @@ async def get_final_answer(combined_context, question):
                 "HTTP-Referer": "http://localhost",
                 "X-Title": "Local Script",
             },
-            model="deepseek/deepseek-chat",
+            model=CHAT_MODEL,
             messages=messages,
             stream=True
         )
@@ -165,7 +169,7 @@ def main():
             st.session_state.processed_chunks = None  # Reset processed chunks when context changes
             st.success("Context updated successfully!")
     
-    st.title("AskMe")
+    st.title("fastAsk")
     
     # 1) Display the conversation so far
     for message in st.session_state.conversation_history:

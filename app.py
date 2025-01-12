@@ -16,122 +16,6 @@ CONTEXT_GATHERER = "deepseek/deepseek-chat" # higher throughput model is preferr
 CHAT_MODEL = "deepseek/deepseek-chat" # better model is preferred here
 
 ###############################################################################
-# Async function that processes one chunk
-###############################################################################
-async def process_chunk_async(chunk, question):
-    """
-    Send one chunk to the OpenRouter API asynchronously and return the response.
-    """
-    client = AsyncOpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=OPENROUTER_API_KEY,
-    )
-    
-    # Build conversation history for context
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are analyzing a chunk of text to copy the "
-                "relevant context to the question provided by the user. "
-                "If no relevant context is found, just output "
-                "'no relevant answer' and no other explanation."
-            )
-        }
-    ]
-    
-    # Add conversation history
-    for msg in st.session_state.conversation_history[-3:]:  # Include last 3 exchanges for context
-        messages.append({"role": msg["role"], "content": msg["content"]})
-    
-    # Add current question
-    messages.append({
-        "role": "user",
-        "content": (
-            f"Based on this text:\n\n{chunk}\n\n"
-            f"Gather the relevant context to answer the following question, "
-            f"taking into account our previous conversation: {question}"
-        )
-    })
-    
-    try:
-        completion = await client.chat.completions.create(
-            extra_headers={
-                "HTTP-Referer": "http://localhost",
-                "X-Title": "Local Script",
-            },
-            model=CONTEXT_GATHERER,
-            messages=messages
-        )
-        return completion.choices[0].message.content.strip()
-    except Exception as e:
-        return f"Error processing chunk: {str(e)}"
-
-# Async function that processes all chunks concurrently using gather
-async def process_all_chunks_async(chunks, question):
-    tasks = [process_chunk_async(chunk, question) for chunk in chunks]
-    return await asyncio.gather(*tasks)
-
-async def get_final_answer(combined_context, question):
-    """
-    Use the combined context to get a final, direct answer from the model.
-    """
-    client = AsyncOpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=OPENROUTER_API_KEY,
-    )
-
-    # Build conversation history for context
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a helpful assistant. Use the provided context to answer "
-                "the user's question. Maintain a natural conversational flow."
-            )
-        }
-    ]
-    
-    # Add conversation history
-    for msg in st.session_state.conversation_history[-4:]:  # Include last 3-4 exchanges for context
-        messages.append({"role": msg["role"], "content": msg["content"]})
-    
-    # Add current context and question
-    messages.append({
-        "role": "user",
-        "content": (
-            f"Based on this context:\n\n{combined_context}\n\n"
-            f"Please answer this question: {question}"
-        )
-    })
-
-    try:
-        completion = await client.chat.completions.create(
-            extra_headers={
-                "HTTP-Referer": "http://localhost",
-                "X-Title": "Local Script",
-            },
-            model=CHAT_MODEL,
-            messages=messages,
-            stream=True
-        )
-        
-        collected_messages = []
-        async for chunk in completion:
-            if chunk.choices[0].delta.content is not None:
-                collected_messages.append(chunk.choices[0].delta.content)
-                yield chunk.choices[0].delta.content
-                
-        # After completion, update conversation history
-        full_response = "".join(collected_messages)
-        st.session_state.conversation_history.append({"role": "assistant", "content": full_response})
-        
-    except Exception as e:
-        error_msg = f"Error getting final answer: {str(e)}"
-        st.session_state.conversation_history.append({"role": "assistant", "content": error_msg})
-        yield error_msg
-
-###############################################################################
 # Streamlit UI
 ###############################################################################
 def main():
@@ -162,7 +46,7 @@ def main():
         st.session_state.context_text = ""
     if 'processed_chunks' not in st.session_state:
         st.session_state.processed_chunks = None
-    if 'persistent_context' not in st.session_state:  # New: for persisting context
+    if 'persistent_context' not in st.session_state:
         st.session_state.persistent_context = ""
 
     # Sidebar for context input
@@ -171,16 +55,14 @@ def main():
         st.info("💡 Use [gitingest.com](https://gitingest.com/) for secure token management.")
         st.warning("Note: Context processing happens only once when you first ask a question. Subsequent questions will use the same processed context until you update it.")
         new_context = st.text_area("Enter your context text here:", 
-                                 value=st.session_state.persistent_context,  # Load persisted context
+                                 value=st.session_state.context_text,
                                  height=300)
         if st.button("Set Context"):
             st.session_state.context_text = new_context
-            st.session_state.persistent_context = new_context  # Save to persistent context
             st.session_state.processed_chunks = None  # Reset processed chunks when context changes
             st.success("Context updated successfully!")
     
     st.title("fastAsk")
-    st.info("The first question you ask will process the context. Subsequent questions will use the same processed context for faster responses.")
     
     # 1) Display the conversation so far
     for message in st.session_state.conversation_history:
@@ -281,6 +163,7 @@ def process_chunk_sync(chunk_and_question):
         api_key=OPENROUTER_API_KEY,
     )
     
+    # Build conversation history for context
     messages = [
         {
             "role": "system",
@@ -295,7 +178,7 @@ def process_chunk_sync(chunk_and_question):
             "role": "user",
             "content": (
                 f"Based on this text:\n\n{chunk}\n\n"
-                f"Gather the relevant context to answer the following question: {question}"
+                f"Find and copy the relevant context to answer this question: {question}"
             )
         }
     ]
@@ -312,6 +195,65 @@ def process_chunk_sync(chunk_and_question):
         return completion.choices[0].message.content.strip()
     except Exception as e:
         return f"Error processing chunk: {str(e)}"
+
+async def get_final_answer(combined_context, question):
+    """
+    Use the combined context to get a final, direct answer from the model.
+    """
+    client = AsyncOpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=OPENROUTER_API_KEY,
+    )
+
+    # Build conversation history for context
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a helpful assistant. Use the provided <context> to answer "
+                "the user's question. Maintain a natural conversational flow. If you don't have enough context, just say you need more context."
+            )
+        }
+    ]
+    
+    # Add conversation history
+    for msg in st.session_state.conversation_history[-4:]:  # Include last 3-4 exchanges for context
+        messages.append({"role": msg["role"], "content": msg["content"]})
+    
+    # Add current context and question
+    messages.append({
+        "role": "user",
+        "content": (
+            f"Based on this context:\n\n<context>{combined_context}</context>\n\n"
+            f"Please answer this question: {question}"
+        )
+    })
+
+    try:
+        completion = await client.chat.completions.create(
+            extra_headers={
+                "HTTP-Referer": "http://localhost",
+                "X-Title": "Local Script",
+            },
+            model=CHAT_MODEL,
+            messages=messages,
+            stream=True
+        )
+        
+        collected_messages = []
+        async for chunk in completion:
+            if chunk.choices[0].delta.content is not None:
+                collected_messages.append(chunk.choices[0].delta.content)
+                yield chunk.choices[0].delta.content
+                
+        # After completion, update conversation history
+        full_response = "".join(collected_messages)
+        st.session_state.conversation_history.append({"role": "assistant", "content": full_response})
+        
+    except Exception as e:
+        error_msg = f"Error getting final answer: {str(e)}"
+        st.session_state.conversation_history.append({"role": "assistant", "content": error_msg})
+        yield error_msg
 
 if __name__ == "__main__":
     main()

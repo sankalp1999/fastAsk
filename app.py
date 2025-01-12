@@ -162,15 +162,20 @@ def main():
         st.session_state.context_text = ""
     if 'processed_chunks' not in st.session_state:
         st.session_state.processed_chunks = None
-    
+    if 'persistent_context' not in st.session_state:  # New: for persisting context
+        st.session_state.persistent_context = ""
+
     # Sidebar for context input
     with st.sidebar:
         st.title("Context Settings")
         st.info("💡 Use [gitingest.com](https://gitingest.com/) for secure token management.")
         st.warning("Note: Context processing happens only once when you first ask a question. Subsequent questions will use the same processed context until you update it.")
-        new_context = st.text_area("Enter your context text here:", height=300)
+        new_context = st.text_area("Enter your context text here:", 
+                                 value=st.session_state.persistent_context,  # Load persisted context
+                                 height=300)
         if st.button("Set Context"):
             st.session_state.context_text = new_context
+            st.session_state.persistent_context = new_context  # Save to persistent context
             st.session_state.processed_chunks = None  # Reset processed chunks when context changes
             st.success("Context updated successfully!")
     
@@ -188,11 +193,15 @@ def main():
     #    This means the form will appear at the bottom, under the last assistant message.
     user_input = None
     with st.form(key='message_form'):
-        user_input = st.text_input("Enter your message here:")
-        submit_button = st.form_submit_button("Send")
+        user_input = st.text_area("Enter your message here:", height=100)
+        col1, col2 = st.columns(2)
+        with col1:
+            submit_button = st.form_submit_button("Send")
+        with col2:
+            reprocess_button = st.form_submit_button("Send with Context Reprocess")
 
     # 3) If the user provided a new message, handle it
-    if submit_button and user_input:
+    if (submit_button or reprocess_button) and user_input:
         # Add user message to conversation history
         st.session_state.conversation_history.append({
             "role": "user",
@@ -205,6 +214,10 @@ def main():
         if not st.session_state.context_text.strip():
             st.warning("Please paste some context text in the sidebar first.")
             return
+
+        # Force reprocessing of chunks if reprocess button was clicked
+        if reprocess_button:
+            st.session_state.processed_chunks = None
 
         # Process chunks if we haven't done so yet
         if st.session_state.processed_chunks is None:

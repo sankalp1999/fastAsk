@@ -5,6 +5,7 @@ from openai import AsyncOpenAI, OpenAI
 from dotenv import load_dotenv
 from multiprocessing import Pool
 from functools import partial
+import concurrent.futures
 
 # Load environment variables
 # Note: You can use https://gitingest.com/ to securely copy and manage your tokens
@@ -12,8 +13,8 @@ load_dotenv()
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 
 # Model constants
-CONTEXT_GATHERER = "deepseek/deepseek-chat" # higher throughput model is preferred here
-CHAT_MODEL = "deepseek/deepseek-chat" # better model is preferred here
+CONTEXT_GATHERER = "google/gemini-2.0-flash-001" # higher throughput model is preferred here
+CHAT_MODEL = "google/gemini-2.0-flash-001" # better model is preferred here
 
 ###############################################################################
 # Streamlit UI
@@ -35,6 +36,14 @@ def main():
             padding: 10px;
             border-radius: 10px;
             margin-bottom: 10px;
+        }
+        .context-chunk {
+            background-color: #e8f5e9;
+            border: 1px dashed #c8e6c9;
+            padding: 10px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            font-size: 0.9em;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -61,14 +70,29 @@ def main():
             st.session_state.context_text = new_context
             st.session_state.processed_chunks = None  # Reset processed chunks when context changes
             st.success("Context updated successfully!")
+        if st.button("Clear Conversation"):
+            st.session_state.conversation_history = []
+            st.success("Conversation cleared!")
     
-    st.title("fastAsk")
+    st.title("fastAsk 🤖")
+    st.markdown("### Ask your questions with enhanced, fast context processing.")
     
-    # 1) Display the conversation so far
+    # Show relevant chunks in a collapsible section if they exist
+    if st.session_state.processed_chunks:
+        with st.expander("View Relevant Context Chunks", expanded=False):
+            st.markdown(f'<div class="context-chunk">{st.session_state.processed_chunks}</div>', 
+                       unsafe_allow_html=True)
+    
+    # Display the conversation so far
     for message in st.session_state.conversation_history:
         if message["role"] == "user":
             st.markdown(f'<div class="user-message">{message["content"]}</div>', unsafe_allow_html=True)
         else:
+            # Show relevant chunks before assistant's response
+            if "chunks" in message:
+                with st.expander("View Relevant Context Chunks", expanded=False):
+                    st.markdown(f'<div class="context-chunk">{message["chunks"]}</div>', 
+                           unsafe_allow_html=True)
             st.markdown(f'<div class="assistant-message">{message["content"]}</div>', unsafe_allow_html=True)
 
     # 2) Add a form to accept new user input, but only *after* everything above is shown
@@ -103,30 +127,8 @@ def main():
 
         # Process chunks if we haven't done so yet
         if st.session_state.processed_chunks is None:
-            chunk_size = 16000
-            overlap = 1000  # Number of characters to overlap between chunks
-            
-            # Modified chunking logic with overlap
-            chunks = [
-                st.session_state.context_text[i:i + chunk_size] 
-                for i in range(0, len(st.session_state.context_text), chunk_size - overlap)
-            ]
-            
-            # Create chunk-question pairs
-            chunk_question_pairs = [(chunk, user_input) for chunk in chunks]
-            
             with st.spinner('Processing context...'):
-                # Use multiprocessing to process chunks in parallel
-                with Pool() as pool:
-                    responses = pool.map(process_chunk_sync, chunk_question_pairs)
-                
-                # Filter out errors and "no relevant answer"
-                relevant_contexts = [
-                    resp for resp in responses 
-                    if not resp.startswith("Error") and resp != "no relevant answer"
-                ]
-                
-                st.session_state.processed_chunks = "\n".join(relevant_contexts).strip()
+                st.session_state.processed_chunks = process_context_chunks(user_input)
 
         # Now generate a final answer
         combined_context = st.session_state.processed_chunks
@@ -149,7 +151,7 @@ def main():
         # Rerun the app to refresh the UI
         st.rerun()
 
-        # Once the script re-runs from the top, you’ll see the conversation updated
+        # Once the script re-runs from the top, you'll see the conversation updated
         # with the user's message and the final response from the assistant.
 
 # Replace the async processing in main() with:
@@ -248,12 +250,45 @@ async def get_final_answer(combined_context, question):
                 
         # After completion, update conversation history
         full_response = "".join(collected_messages)
-        st.session_state.conversation_history.append({"role": "assistant", "content": full_response})
+        st.session_state.conversation_history.append({
+            "role": "assistant", 
+            "content": full_response,
+            "chunks": combined_context  # Store chunks with the response
+        })
         
     except Exception as e:
         error_msg = f"Error getting final answer: {str(e)}"
-        st.session_state.conversation_history.append({"role": "assistant", "content": error_msg})
+        st.session_state.conversation_history.append({
+            "role": "assistant", 
+            "content": error_msg,
+            "chunks": combined_context  # Store chunks even with error messages
+        })
         yield error_msg
+
+# Add new process_context_chunks function
+def process_context_chunks(user_input):
+    """
+    Splits the context into overlapping chunks and processes them in parallel.
+    """
+    chunk_size = 32000
+    overlap = 1000  # Characters to overlap between chunks
+    text = st.session_state.context_text
+    chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size - overlap)]
+    chunk_question_pairs = [(chunk, user_input) for chunk in chunks]
+
+    relevant_contexts = []
+    total_chunks = len(chunk_question_pairs)
+    progress_bar = st.progress(0)
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(process_chunk_sync, pair): pair for pair in chunk_question_pairs}
+        for i, future in enumerate(concurrent.futures.as_completed(futures)):
+            result = future.result()
+            if not result.startswith("Error") and result != "no relevant answer":
+                relevant_contexts.append(result)
+            progress_bar.progress((i + 1) / total_chunks)
+    progress_bar.empty()
+    return "\n".join(relevant_contexts).strip()
 
 if __name__ == "__main__":
     main()

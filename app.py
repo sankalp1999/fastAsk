@@ -171,7 +171,8 @@ def process_chunk_sync(chunk_and_question):
             "role": "system",
             "content": (
                 "You are analyzing a chunk of text to copy the "
-                "relevant context to the question provided by the user. "
+                "relevant context to the question provided by the user. Sometimes the question will be like answer based on provided context, in that case you have to answer and not just copy the context."
+                f"Context: <context>{chunk}</context>"
                 "If no relevant context is found, just output "
                 "'no relevant answer' and no other explanation."
             )
@@ -179,8 +180,7 @@ def process_chunk_sync(chunk_and_question):
         {
             "role": "user",
             "content": (
-                f"Based on this text:\n\n{chunk}\n\n"
-                f"Find and copy the relevant context to answer this question: {question}"
+                f"<question>{question}</question> Find and copy the relevant context to answer this question or answer the question based on the context."
             )
         }
     ]
@@ -273,7 +273,13 @@ def process_context_chunks(user_input):
     chunk_size = 32000
     overlap = 1000  # Characters to overlap between chunks
     text = st.session_state.context_text
-    chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size - overlap)]
+    
+    # Handle single chunk case
+    if len(text) <= chunk_size:
+        chunks = [text]
+    else:
+        chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size - overlap)]
+        
     chunk_question_pairs = [(chunk, user_input) for chunk in chunks]
 
     relevant_contexts = []
